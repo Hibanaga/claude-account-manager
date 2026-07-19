@@ -1,0 +1,10 @@
+{
+  "name": "claude-account-manager",
+  "description": "Register multiple Claude Code accounts, authenticate each once, and switch between them across sessions with zero re-login.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Hibanaga"
+  },
+  "license": "MIT",
+  "keywords": ["account", "profile", "switch", "auth"]
+}
