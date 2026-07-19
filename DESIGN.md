@@ -96,6 +96,16 @@ late write is never lost), validates the target, sets it active, and relaunches.
 A child killed by a signal ends the loop. `cam switch <name>` (invoked by the
 `/switch` command) writes that sentinel and updates the active pointer.
 
+Each loop-launched `claude` gets `CAM_RUN_LOOP=1` in its env (set only on the
+`cam run` path, not `cam use`). A slash command's `!bash` is a child of that
+`claude` process and inherits the marker, so `/switch` and `cam status` can tell
+whether a staged switch will actually relaunch — otherwise `/switch` would appear
+to succeed while nothing consumes the sentinel. It is a per-session signal, unlike
+the per-`CAM_HOME` run lock. Capturing the native `/login` credential into `cam` is
+explicitly out of scope: macOS keeps it in the Keychain (`CLAUDE_CONFIG_DIR` does
+not relocate it) and it is refresh-token-based, not portable via one env var;
+`setup-token` → `CLAUDE_CODE_OAUTH_TOKEN` is the supported, portable path.
+
 ## Data model
 - `~/.cam/registry.json` — metadata + active pointer, **no secrets**.
 - `~/.cam/profiles/<id>/` — the profile's `CLAUDE_CONFIG_DIR`.

@@ -39,6 +39,7 @@ interface StubRecord {
   configDir: string;
   hasOAuth: boolean;
   args: string[];
+  inRunLoop: boolean;
 }
 
 function readRecords(outFile: string): StubRecord[] {
@@ -73,6 +74,7 @@ describe('integration (stub claude, no real credentials)', () => {
     assert.equal(records.length, 1);
     assert.equal(records[0]?.configDir, ctx.paths.profileConfigDir('work'));
     assert.equal(records[0]?.hasOAuth, true, 'CLAUDE_CODE_OAUTH_TOKEN should be injected');
+    assert.equal(records[0]?.inRunLoop, false, 'cam use is one-shot; no run-loop marker');
   });
 
   test('use passes through extra args to claude', async () => {
@@ -102,6 +104,10 @@ describe('integration (stub claude, no real credentials)', () => {
       ['work', 'home'],
     );
     assert.equal(records[1]?.configDir, ctx.paths.profileConfigDir('home'));
+    assert.ok(
+      records.every((r) => r.inRunLoop === true),
+      'cam run marks every launched session with CAM_RUN_LOOP',
+    );
   });
 
   test('remove deletes the profile and its key file', async () => {

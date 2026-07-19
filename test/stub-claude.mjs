@@ -18,6 +18,7 @@ const record = {
   args: process.argv.slice(2),
   hasOAuth: Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN),
   hasApiKeyEnv: Boolean(process.env.ANTHROPIC_API_KEY),
+  inRunLoop: Boolean(process.env.CAM_RUN_LOOP),
 };
 
 const out = process.env.STUB_OUT;
