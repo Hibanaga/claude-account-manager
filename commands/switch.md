@@ -1,6 +1,6 @@
 ---
 description: Stage a switch to another cam account (takes effect on relaunch)
-argument-hint: <name>
+argument-hint: <name|number>
 allowed-tools: Bash(cam switch:*)
 ---
 

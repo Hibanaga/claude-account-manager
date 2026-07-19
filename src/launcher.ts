@@ -36,6 +36,24 @@ export async function buildLaunchContext(
   return ctx;
 }
 
+/**
+ * Run a one-shot `claude` subcommand (e.g. `setup-token`) with inherited stdio so
+ * its browser flow gets the TTY. Auth env is stripped and CLAUDE_CONFIG_DIR is
+ * pointed at the profile dir so a stray parent token can't short-circuit login.
+ * No provider is applied — this runs before any credential exists.
+ */
+export function launchClaudeTool(
+  bin: string,
+  args: string[],
+  configDir: string,
+  baseEnv: NodeJS.ProcessEnv,
+): Promise<LaunchResult> {
+  const env: NodeJS.ProcessEnv = { ...baseEnv };
+  for (const key of AUTH_ENV_KEYS) delete env[key];
+  env.CLAUDE_CONFIG_DIR = configDir;
+  return new Launcher(bin).launch({ env, configDir, args });
+}
+
 export type SpawnFn = typeof spawn;
 
 /**

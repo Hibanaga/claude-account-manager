@@ -1,7 +1,7 @@
 {
   "name": "claude-account-manager",
   "description": "Register multiple Claude Code accounts, authenticate each once, and switch between them across sessions with zero re-login.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Hibanaga"
   },

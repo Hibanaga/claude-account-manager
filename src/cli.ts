@@ -10,7 +10,7 @@ import { runLoop } from './core/run-loop.js';
 import { writeSentinel } from './core/sentinel.js';
 import { makeRef, parseRef } from './credentials/backend.js';
 import { FileBackend } from './credentials/file-backend.js';
-import { Launcher, buildLaunchContext } from './launcher.js';
+import { Launcher, type LaunchResult, buildLaunchContext, launchClaudeTool } from './launcher.js';
 
 interface App {
   paths: CamPaths;
@@ -18,7 +18,18 @@ interface App {
   backend: FileBackend;
 }
 
-function buildApp(env: NodeJS.ProcessEnv): App {
+/** Injectable IO/side-effect seams so `add`/`switch` are testable without a TTY. */
+export interface AddDeps {
+  isInteractive: () => boolean;
+  promptLine: (msg: string) => Promise<string>;
+  launchSetupToken: (bin: string, configDir: string, env: NodeJS.ProcessEnv) => Promise<LaunchResult>;
+}
+export interface SwitchDeps {
+  isInteractive: () => boolean;
+  promptLine: (msg: string) => Promise<string>;
+}
+
+export function buildApp(env: NodeJS.ProcessEnv): App {
   const paths = new CamPaths(env);
   return { paths, registry: new Registry(paths), backend: new FileBackend(paths) };
 }
@@ -34,13 +45,15 @@ between them across sessions with zero re-login.
 
 USAGE
   cam add <name> [--api-key-stdin | --oauth-token-stdin]
-                          Register an account. Default = subscription (OAuth).
-                          Interactive prompt guides you through 'claude setup-token'.
-  cam list                List registered accounts.
+                          Register an account. Default = subscription (OAuth):
+                          runs 'claude setup-token' for you, then prompts for paste.
+  cam list                List registered accounts (numbered; active marked *).
   cam current             Show the active account.
   cam use <name> [args…]  Launch claude as <name> (isolated config); passes args through.
   cam run                 Launch the active account in a loop; honors /switch (relaunches).
-  cam switch <name>       Stage <name> as the next account (used by the /switch command).
+  cam switch [name|number]
+                          Stage an account as the next one (used by the /switch command).
+                          No argument in a terminal → interactive picker.
   cam remove <name>       Delete an account and its stored credentials.
   cam help                Show this help.
 
@@ -51,7 +64,16 @@ ENV
 Note: switching relaunches claude — Claude Code binds auth at startup, so there
 is no true in-process hot-swap.`;
 
-async function cmdAdd(app: App, rest: string[]): Promise<void> {
+export async function cmdAdd(
+  app: App,
+  env: NodeJS.ProcessEnv,
+  rest: string[],
+  deps: AddDeps = {
+    isInteractive,
+    promptLine,
+    launchSetupToken: (bin, configDir, e) => launchClaudeTool(bin, ['setup-token'], configDir, e),
+  },
+): Promise<void> {
   const { values, positionals } = parseArgs({
     args: rest,
     options: {
@@ -67,26 +89,23 @@ async function cmdAdd(app: App, rest: string[]): Promise<void> {
   if (app.registry.has(id)) throw new CamError(`Profile "${id}" already exists.`);
 
   const authKind: AuthKind = values['api-key-stdin'] ? 'api-key' : 'subscription-oauth';
+  const configDir = app.paths.profileConfigDir(id);
+  ensureDir(configDir, 0o700);
 
   let secret: string;
   if (authKind === 'api-key') {
     secret = (await readStdinAll()).trim();
   } else if (values['oauth-token-stdin']) {
     secret = (await readStdinAll()).trim();
-  } else if (isInteractive()) {
-    process.stderr.write(
-      'Subscription login:\n' +
-        '  1. In another terminal run:  claude setup-token\n' +
-        '  2. Complete the browser flow; it prints a token.\n',
-    );
-    secret = await promptLine('  3. Paste the token here: ');
+  } else if (deps.isInteractive()) {
+    process.stderr.write('Subscription login — launching `claude setup-token`…\n');
+    const res = await deps.launchSetupToken(claudeBin(env), configDir, env);
+    if (res.code !== 0) throw new CamError('claude setup-token failed; aborting add.');
+    secret = (await deps.promptLine('Paste the token printed above here: ')).trim();
   } else {
     throw new CamError('No token on stdin. Use --oauth-token-stdin, or run interactively.');
   }
   if (!secret) throw new CamError('No credential provided.');
-
-  const configDir = app.paths.profileConfigDir(id);
-  ensureDir(configDir, 0o700);
 
   const profile: Profile = {
     id,
@@ -105,17 +124,31 @@ async function cmdAdd(app: App, rest: string[]): Promise<void> {
   process.stdout.write(`Added "${id}" (${authKind}) and set active. Launch it with: cam use ${id}\n`);
 }
 
-function cmdList(app: App): void {
+function printList(app: App): void {
   const profiles = app.registry.list();
   const active = app.registry.getActive()?.id;
-  if (profiles.length === 0) {
+  profiles.forEach((p, i) => {
+    const marker = p.id === active ? '*' : ' ';
+    process.stdout.write(`${i + 1}) ${marker} ${p.id.padEnd(20)} ${p.authKind}\n`);
+  });
+}
+
+function cmdList(app: App): void {
+  if (app.registry.list().length === 0) {
     process.stdout.write('No accounts. Add one with: cam add <name>\n');
     return;
   }
-  for (const p of profiles) {
-    const marker = p.id === active ? '*' : ' ';
-    process.stdout.write(`${marker} ${p.id.padEnd(20)} ${p.authKind}\n`);
+  printList(app);
+}
+
+/** Resolve a switch target from a name or a 1-based index into the account list. */
+function resolveTarget(app: App, token: string): Profile {
+  if (/^\d+$/.test(token)) {
+    const profile = app.registry.list()[Number.parseInt(token, 10) - 1];
+    if (!profile) throw new CamError(`No account at number ${token}. Run "cam list".`);
+    return profile;
   }
+  return app.registry.getOrThrow(token);
 }
 
 function cmdCurrent(app: App): void {
@@ -157,13 +190,26 @@ async function cmdRun(app: App, env: NodeJS.ProcessEnv): Promise<void> {
   });
 }
 
-function cmdSwitch(app: App, rest: string[]): void {
-  const name = rest[0];
-  if (!name) throw new CamError('Usage: cam switch <name>');
-  app.registry.getOrThrow(name); // validate it exists
-  app.registry.setActive(name);
-  writeSentinel(app.paths, name);
-  process.stdout.write(`Staged switch to "${name}". Exit claude to relaunch into it.\n`);
+export async function cmdSwitch(
+  app: App,
+  rest: string[],
+  deps: SwitchDeps = { isInteractive, promptLine },
+): Promise<void> {
+  let token = rest[0];
+  if (!token) {
+    if (!deps.isInteractive()) throw new CamError('Usage: cam switch <name|number>');
+    if (app.registry.list().length === 0) throw new CamError('No accounts to switch to.');
+    printList(app);
+    token = (await deps.promptLine('Switch to (number/name, blank = cancel): ')).trim();
+    if (!token) {
+      process.stdout.write('Cancelled.\n');
+      return;
+    }
+  }
+  const profile = resolveTarget(app, token);
+  app.registry.setActive(profile.id);
+  writeSentinel(app.paths, profile.id);
+  process.stdout.write(`Staged switch to "${profile.id}". Exit claude to relaunch into it.\n`);
 }
 
 function cmdRemove(app: App, rest: string[]): void {
@@ -194,7 +240,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         process.stdout.write(`${HELP}\n`);
         return;
       case 'add':
-        return await cmdAdd(app, rest);
+        return await cmdAdd(app, env, rest);
       case 'list':
         return cmdList(app);
       case 'current':
@@ -205,7 +251,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       case 'run':
         return await cmdRun(app, env);
       case 'switch':
-        return cmdSwitch(app, rest);
+        return await cmdSwitch(app, rest);
       case 'remove':
         return cmdRemove(app, rest);
       default:
