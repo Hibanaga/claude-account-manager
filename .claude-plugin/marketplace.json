@@ -1,0 +1,14 @@
+{
+  "name": "cam-marketplace",
+  "owner": {
+    "name": "Hibanaga"
+  },
+  "description": "Marketplace for the Claude Account Manager (cam) plugin.",
+  "plugins": [
+    {
+      "name": "claude-account-manager",
+      "source": "./",
+      "description": "Slash commands (/claude-account-manager:accounts, :switch, :add-account) over the cam CLI."
+    }
+  ]
+}

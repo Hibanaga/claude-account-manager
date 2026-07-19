@@ -1,0 +1,39 @@
+{
+  "name": "claude-account-manager",
+  "version": "0.1.0",
+  "description": "Register multiple Claude Code accounts, authenticate each once, and switch between them across sessions with zero re-login.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "account",
+    "profile",
+    "switch",
+    "cli"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "cam": "bin/cam"
+  },
+  "files": [
+    "bin",
+    "dist/src",
+    "commands",
+    ".claude-plugin",
+    "README.md",
+    "DESIGN.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.3.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test \"dist/test/**/*.test.js\"",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
