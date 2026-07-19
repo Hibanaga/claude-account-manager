@@ -23,6 +23,19 @@ export async function buildLaunchContext(profile, provider, args, baseEnv) {
     return ctx;
 }
 /**
+ * Run a one-shot `claude` subcommand (e.g. `setup-token`) with inherited stdio so
+ * its browser flow gets the TTY. Auth env is stripped and CLAUDE_CONFIG_DIR is
+ * pointed at the profile dir so a stray parent token can't short-circuit login.
+ * No provider is applied — this runs before any credential exists.
+ */
+export function launchClaudeTool(bin, args, configDir, baseEnv) {
+    const env = { ...baseEnv };
+    for (const key of AUTH_ENV_KEYS)
+        delete env[key];
+    env.CLAUDE_CONFIG_DIR = configDir;
+    return new Launcher(bin).launch({ env, configDir, args });
+}
+/**
  * Spawns `claude` with the profile's env and inherited stdio. Node has no true
  * execve; a spawn+wait is functionally equivalent for a CLI and lets the run
  * loop regain control when the child exits. While the child runs, the parent

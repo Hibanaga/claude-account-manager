@@ -5,13 +5,12 @@ argument-hint: <name>
 
 The user wants to add a new cam account named `$ARGUMENTS`.
 
-Adding a subscription account needs an interactive browser flow, which can't run
-inside a slash command. Give the user these exact terminal steps:
+Adding needs a terminal (the browser login can't run inside a slash command).
+Give the user these exact steps:
 
 **Subscription (Pro/Max/Team/Enterprise):**
 ```
-claude setup-token                        # complete browser login; copy the printed token
-cam add $ARGUMENTS --oauth-token-stdin    # paste the token, then press Ctrl-D
+cam add $ARGUMENTS         # runs `claude setup-token` for you, then prompts for the token paste
 ```
 
 **API key (Console billing):**

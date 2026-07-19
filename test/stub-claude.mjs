@@ -5,6 +5,12 @@ import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
+// `claude setup-token`: print a fake token and exit (never persists anything).
+if (process.argv[2] === 'setup-token') {
+  process.stdout.write('sk-ant-oat01-STUB-TOKEN\n');
+  process.exit(0);
+}
+
 const configDir = process.env.CLAUDE_CONFIG_DIR ?? '';
 const record = {
   configDir,
