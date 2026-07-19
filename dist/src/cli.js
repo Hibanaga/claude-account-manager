@@ -29,6 +29,7 @@ USAGE
                           runs 'claude setup-token' for you, then prompts for paste.
   cam list                List registered accounts (numbered; active marked *).
   cam current             Show the active account.
+  cam status              Show the active account and whether /switch will relaunch.
   cam use <name> [args…]  Launch claude as <name> (isolated config); passes args through.
   cam run                 Launch the active account in a loop; honors /switch (relaunches).
   cam switch [name|number]
@@ -42,7 +43,8 @@ ENV
   CAM_CLAUDE_BIN          Path to the claude binary (default: claude).
 
 Note: switching relaunches claude — Claude Code binds auth at startup, so there
-is no true in-process hot-swap.`;
+is no true in-process hot-swap. /switch only relaunches inside a 'cam run' session;
+add 'alias claude=cam run' so every session is switch-capable.`;
 export async function cmdAdd(app, env, rest, deps = {
     isInteractive,
     promptLine,
@@ -128,6 +130,17 @@ function cmdCurrent(app) {
     const active = app.registry.getActive();
     process.stdout.write(active ? `${active.id} (${active.authKind})\n` : 'No active account.\n');
 }
+export function cmdStatus(app, env) {
+    const active = app.registry.getActive();
+    process.stdout.write(active ? `Active: ${active.id} (${active.authKind})\n` : 'No active account.\n');
+    if (env.CAM_RUN_LOOP === '1') {
+        process.stdout.write("✓ in a 'cam run' session — /switch relaunches on exit.\n");
+    }
+    else {
+        process.stdout.write("✗ not in a 'cam run' session — /switch stages a switch but nothing relaunches.\n" +
+            "  Start sessions with 'cam run' (tip: alias claude='cam run').\n");
+    }
+}
 async function cmdUse(app, env, rest) {
     const name = rest[0];
     if (!name)
@@ -153,12 +166,18 @@ async function cmdRun(app, env) {
         launch: async (profile) => {
             const provider = providerFor(profile.authKind, app.backend, app.paths);
             const ctx = await buildLaunchContext(profile, provider, [], env);
+            // Mark the session so /switch and cam status know a switch will relaunch.
+            ctx.env.CAM_RUN_LOOP = '1';
             app.registry.update(profile.id, { lastUsedAt: new Date().toISOString() });
             return new Launcher(bin).launch(ctx);
         },
     });
 }
-export async function cmdSwitch(app, rest, deps = { isInteractive, promptLine }) {
+export async function cmdSwitch(app, rest, deps = {
+    isInteractive,
+    promptLine,
+    inRunLoop: () => process.env.CAM_RUN_LOOP === '1',
+}) {
     let token = rest[0];
     if (!token) {
         if (!deps.isInteractive())
@@ -176,6 +195,9 @@ export async function cmdSwitch(app, rest, deps = { isInteractive, promptLine })
     app.registry.setActive(profile.id);
     writeSentinel(app.paths, profile.id);
     process.stdout.write(`Staged switch to "${profile.id}". Exit claude to relaunch into it.\n`);
+    if (!deps.inRunLoop()) {
+        process.stdout.write("⚠ You're not in a 'cam run' session — this won't take effect until you launch one.\n");
+    }
 }
 function cmdRemove(app, rest) {
     const name = rest[0];
@@ -210,6 +232,8 @@ export async function main(argv, env = process.env) {
                 return cmdList(app);
             case 'current':
                 return cmdCurrent(app);
+            case 'status':
+                return cmdStatus(app, env);
             case 'use':
                 await cmdUse(app, env, rest);
                 return;

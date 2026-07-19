@@ -54,19 +54,29 @@ Secrets are read from **stdin only** — never passed as command-line arguments.
 ```bash
 cam list                 # show accounts (active marked with *)
 cam current              # show the active account
+cam status               # active account + whether /switch will relaunch
 cam use work -p "hi"     # launch claude as `work`, passing args through
 cam switch home          # stage `home` as the next account
 cam remove ci            # delete an account and its stored credentials
 ```
 
 ### Mid-session-style switching
-Start a session through the launcher loop:
+Switching only takes effect inside a launcher-loop session, so make every session
+one:
 ```bash
-cam run
+alias claude='cam run'   # add to ~/.zshrc / ~/.bashrc
 ```
-Inside that session, staging a switch (via `cam switch <name>` or the
-`/claude-account-manager:switch` command) and then exiting `claude` (Ctrl-D)
-makes `cam run` relaunch into the new account automatically.
+Now `claude` starts the loop. Inside that session, staging a switch (via
+`cam switch <name>` or the `/claude-account-manager:switch` command) and then
+exiting `claude` (Ctrl-D) makes `cam run` relaunch into the new account
+automatically. `cam status` tells you whether the current session is switch-capable
+(and `/accounts` shows the same guard).
+
+> Capturing the native `/login` result into `cam` is **not supported**: on macOS
+> those credentials live in the Keychain (not relocatable per profile) and are
+> refresh-token-based, not portable via a single env var. `claude setup-token` is
+> the same browser flow made portable — that's why first-time add is a one-time
+> terminal step.
 
 ## Use as a Claude Code plugin
 This repo doubles as a plugin marketplace.
@@ -77,7 +87,7 @@ This repo doubles as a plugin marketplace.
 ```
 
 Commands (the CLI must be installed and on PATH — the plugin only shells out to it):
-- `/claude-account-manager:accounts` — list accounts (`cam list`)
+- `/claude-account-manager:accounts` — list accounts + switch-capable status (`cam list` + `cam status`)
 - `/claude-account-manager:switch <name>` — stage a switch
 - `/claude-account-manager:add-account <name>` — guided add instructions
 

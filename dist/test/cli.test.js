@@ -1,12 +1,28 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { after, beforeEach, describe, test } from 'node:test';
-import { buildApp, cmdAdd, cmdSwitch } from '../src/cli.js';
+import { buildApp, cmdAdd, cmdStatus, cmdSwitch } from '../src/cli.js';
 import { CamError } from '../src/core/errors.js';
 import { makeRef } from '../src/credentials/backend.js';
 import { makeProfile, tempCam } from './helpers.js';
 function sentinelTarget(home) {
     return JSON.parse(readFileSync(`${home}/switch`, 'utf8')).target;
+}
+/** Capture everything written to process.stdout while `fn` runs. */
+async function captureStdout(fn) {
+    const original = process.stdout.write.bind(process.stdout);
+    let out = '';
+    process.stdout.write = ((chunk) => {
+        out += chunk.toString();
+        return true;
+    });
+    try {
+        await fn();
+    }
+    finally {
+        process.stdout.write = original;
+    }
+    return out;
 }
 describe('cmdAdd — drives claude setup-token', () => {
     let ctx;
@@ -86,13 +102,71 @@ describe('cmdSwitch — by name, number, and interactive picker', () => {
     });
     test('interactive picker resolves the entered choice', async () => {
         const app = seedTwo();
-        await cmdSwitch(app, [], { isInteractive: () => true, promptLine: async () => '2' });
+        await cmdSwitch(app, [], {
+            isInteractive: () => true,
+            promptLine: async () => '2',
+            inRunLoop: () => true,
+        });
         assert.equal(app.registry.getActive()?.id, 'home');
         assert.equal(sentinelTarget(ctx.home), 'home');
     });
     test('interactive picker cancels on blank input, leaving active unchanged', async () => {
         const app = seedTwo();
-        await cmdSwitch(app, [], { isInteractive: () => true, promptLine: async () => '' });
+        await cmdSwitch(app, [], {
+            isInteractive: () => true,
+            promptLine: async () => '',
+            inRunLoop: () => true,
+        });
         assert.equal(app.registry.getActive()?.id, 'work');
+    });
+    test('warns and still stages when not in a cam run session', async () => {
+        const app = seedTwo();
+        const out = await captureStdout(() => cmdSwitch(app, ['2'], {
+            isInteractive: () => false,
+            promptLine: async () => '',
+            inRunLoop: () => false,
+        }));
+        assert.match(out, /won't take effect/);
+        assert.equal(sentinelTarget(ctx.home), 'home', 'sentinel is still written');
+    });
+    test('no warning when in a cam run session', async () => {
+        const app = seedTwo();
+        const out = await captureStdout(() => cmdSwitch(app, ['2'], {
+            isInteractive: () => false,
+            promptLine: async () => '',
+            inRunLoop: () => true,
+        }));
+        assert.doesNotMatch(out, /won't take effect/);
+    });
+});
+describe('cmdStatus — reports active account and run-loop state', () => {
+    let ctx;
+    let env;
+    beforeEach(() => {
+        ctx?.cleanup();
+        ctx = tempCam();
+        env = { CAM_HOME: ctx.home };
+    });
+    after(() => ctx?.cleanup());
+    test('in a cam run session', async () => {
+        const app = buildApp(env);
+        app.registry.add(makeProfile('work'));
+        app.registry.setActive('work');
+        const out = await captureStdout(() => cmdStatus(app, { CAM_RUN_LOOP: '1' }));
+        assert.match(out, /Active: work/);
+        assert.match(out, /✓ in a 'cam run' session/);
+    });
+    test('not in a cam run session', async () => {
+        const app = buildApp(env);
+        app.registry.add(makeProfile('work'));
+        app.registry.setActive('work');
+        const out = await captureStdout(() => cmdStatus(app, {}));
+        assert.match(out, /✗ not in a 'cam run' session/);
+        assert.match(out, /cam run/);
+    });
+    test('no active account', async () => {
+        const app = buildApp(env);
+        const out = await captureStdout(() => cmdStatus(app, {}));
+        assert.match(out, /No active account/);
     });
 });
